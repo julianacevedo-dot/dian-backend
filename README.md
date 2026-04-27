@@ -1,12 +1,17 @@
-# Backend DIAN FINAL v5
+# Backend DIAN FINAL v6
 
-Ajustado al flujo correcto:
+Ajuste principal:
+- Escribe CC y NIT con `.type(..., delay)` para simular teclado humano.
+- Presiona `Tab` para disparar validaciones JS/Angular.
+- Espera procesamiento después del clic en `Entrar`.
 
-1. Abrir `https://catalogo-vpfe.dian.gov.co/User/Login`
-2. Seleccionar `Empresa`
-3. Seleccionar `Representante legal`
-4. Llenar CC y NIT
+Flujo:
+1. Abre `https://catalogo-vpfe.dian.gov.co/User/Login`
+2. Selecciona `Empresa`
+3. Selecciona `Representante legal`
+4. Escribe CC y NIT como humano
 5. Clic en `Entrar`
+6. n8n lee correo y envía link al endpoint `/continuar-con-link`
 
 Variables Railway:
 - REPRESENTANTE_CC
