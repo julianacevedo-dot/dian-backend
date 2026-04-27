@@ -1,18 +1,14 @@
 {
-  "name": "dian-backend-playwright",
-  "version": "1.0.1",
-  "description": "Backend Playwright para automatizaci\u00f3n autorizada DIAN",
+  "name": "dian-backend-final",
+  "version": "3.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "postinstall": "npx playwright install chromium"
   },
   "dependencies": {
+    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "express": "^4.18.3",
     "playwright": "^1.44.0"
-  },
-  "engines": {
-    "node": ">=18"
   }
 }
