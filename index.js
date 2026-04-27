@@ -20,9 +20,11 @@ let page;
 
 function auth(req, res, next) {
   if (!SECRET) return res.status(500).json({ ok: false, error: "Falta AGENTE_SECRETO_DE_DIAN en el backend" });
+
   if (req.headers.authorization !== `Bearer ${SECRET}`) {
     return res.status(401).json({ ok: false, error: "No autorizado" });
   }
+
   next();
 }
 
@@ -45,8 +47,34 @@ async function ensureBrowser() {
   return page;
 }
 
+async function clickFirstVisible(page, selectors, timeout = 45000) {
+  const start = Date.now();
+
+  while (Date.now() - start < timeout) {
+    for (const selector of selectors) {
+      const loc = page.locator(selector).first();
+      const count = await loc.count().catch(() => 0);
+      if (count > 0) {
+        try {
+          if (await loc.isVisible({ timeout: 1000 })) {
+            await loc.click({ timeout: 5000 });
+            return;
+          }
+        } catch {}
+      }
+    }
+    await page.waitForTimeout(1000);
+  }
+
+  throw new Error("No se pudo hacer click en: " + selectors.join(" | "));
+}
+
 app.get("/", (req, res) => {
-  res.json({ ok: true, service: "Agente DIAN Playwright", endpoints: ["/proceso-completo", "/continuar-con-link"] });
+  res.json({
+    ok: true,
+    service: "Agente DIAN Playwright",
+    endpoints: ["/health", "/proceso-completo", "/continuar-con-link"]
+  });
 });
 
 app.get("/health", (req, res) => {
@@ -67,21 +95,34 @@ app.post("/proceso-completo", auth, async (req, res) => {
       timeout: 90000
     });
 
+    await p.waitForTimeout(3000);
+
     console.log("Seleccionando Empresa...");
-    await p.getByText("Empresa", { exact: false }).click({ timeout: 45000 });
+    await clickFirstVisible(p, [
+      "text=Empresa",
+      "a:has-text('Empresa')",
+      "button:has-text('Empresa')",
+      "div:has-text('Empresa')"
+    ]);
+
+    await p.waitForTimeout(2000);
 
     console.log("Seleccionando Representante legal...");
-    await p.getByText("Representante legal", { exact: false }).click({ timeout: 45000 });
+    await p.getByText("Representante legal", { exact: true }).first().click({ timeout: 45000 });
+
+    await p.waitForTimeout(2000);
 
     console.log("Llenando formulario...");
+
     const inputs = p.locator("input");
+    await inputs.nth(0).waitFor({ state: "visible", timeout: 45000 });
     await inputs.nth(0).fill(CC);
     await inputs.nth(1).fill(NIT);
 
     console.log("Enviando login...");
-    await p.getByText("Entrar", { exact: false }).click({ timeout: 45000 });
+    await p.getByText("Entrar", { exact: true }).first().click({ timeout: 45000 });
 
-    await p.waitForTimeout(4000);
+    await p.waitForTimeout(5000);
 
     res.json({
       ok: true,
@@ -121,7 +162,7 @@ app.post("/continuar-con-link", auth, async (req, res) => {
     await p.waitForTimeout(3000);
 
     console.log("Clic en Exportar Excel...");
-    await p.getByText("Exportar Excel", { exact: false }).click({ timeout: 90000 });
+    await p.getByText("Exportar Excel", { exact: true }).first().click({ timeout: 90000 });
 
     console.log("Esperando que DIAN genere el archivo...");
 
@@ -134,8 +175,7 @@ app.post("/continuar-con-link", auth, async (req, res) => {
       "[title*='Descargar']",
       "[aria-label*='Descargar']",
       ".fa-download",
-      "i.fa-download",
-      "svg"
+      "i.fa-download"
     ];
 
     for (let i = 0; i < 36; i++) {

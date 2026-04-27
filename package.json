@@ -1,6 +1,6 @@
 {
   "name": "dian-backend-playwright",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Backend Playwright para automatizaci\u00f3n autorizada DIAN",
   "main": "index.js",
   "scripts": {
