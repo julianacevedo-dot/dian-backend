@@ -20,14 +20,15 @@ const HEADLESS = process.env.HEADLESS !== "false";
 let browser;
 let context;
 let page;
+
 let lastStatus = {
   ok: true,
   step: "idle",
-  message: "Backend iniciado",
+  message: "Backend DIAN robusto v7 iniciado",
   updatedAt: new Date().toISOString()
 };
 
-function setStatus(step, message, extra = {}) {
+function log(step, message, extra = {}) {
   lastStatus = {
     ok: true,
     step,
@@ -38,7 +39,7 @@ function setStatus(step, message, extra = {}) {
   console.log(`[${step}] ${message}`);
 }
 
-function setError(step, error) {
+function logError(step, error) {
   lastStatus = {
     ok: false,
     step,
@@ -53,10 +54,11 @@ function ensureDirs() {
   if (!fs.existsSync(DEBUG_DIR)) fs.mkdirSync(DEBUG_DIR, { recursive: true });
 }
 
-async function screenshot(name) {
+async function takeScreenshot(name) {
   try {
     ensureDirs();
     if (!page || page.isClosed()) return null;
+
     const file = path.join(DEBUG_DIR, `${Date.now()}-${name}.png`);
     await page.screenshot({ path: file, fullPage: true });
     console.log("Screenshot:", file);
@@ -69,11 +71,17 @@ async function screenshot(name) {
 
 function auth(req, res, next) {
   if (!SECRET) {
-    return res.status(500).json({ ok: false, error: "Falta AGENTE_SECRETO_DE_DIAN en Railway" });
+    return res.status(500).json({
+      ok: false,
+      error: "Falta AGENTE_SECRETO_DE_DIAN en Railway"
+    });
   }
 
   if (req.headers.authorization !== `Bearer ${SECRET}`) {
-    return res.status(401).json({ ok: false, error: "No autorizado: token incorrecto" });
+    return res.status(401).json({
+      ok: false,
+      error: "No autorizado: token incorrecto"
+    });
   }
 
   next();
@@ -94,14 +102,16 @@ async function getPage({ fresh = false } = {}) {
   if (fresh) await resetBrowser();
 
   if (!browser) {
-    setStatus("browser", `Lanzando navegador HEADLESS=${HEADLESS}`);
+    log("browser", `Lanzando Chromium HEADLESS=${HEADLESS}`);
+
     browser = await chromium.launch({
       headless: HEADLESS,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
-        "--disable-blink-features=AutomationControlled"
+        "--disable-blink-features=AutomationControlled",
+        "--disable-infobars"
       ]
     });
   }
@@ -110,10 +120,19 @@ async function getPage({ fresh = false } = {}) {
     context = await browser.newContext({
       acceptDownloads: true,
       viewport: { width: 1366, height: 768 },
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36",
+      deviceScaleFactor: 1,
+      isMobile: false,
+      hasTouch: false,
       locale: "es-CO",
-      timezoneId: "America/Bogota"
+      timezoneId: "America/Bogota",
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    });
+
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+      Object.defineProperty(navigator, "languages", { get: () => ["es-CO", "es", "en-US", "en"] });
+      Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3, 4, 5] });
     });
   }
 
@@ -126,34 +145,58 @@ async function getPage({ fresh = false } = {}) {
   return page;
 }
 
-async function humanType(locator, value) {
-  await locator.click({ timeout: 60000 });
-  await locator.fill("");
-  await locator.type(value, { delay: 120 });
-  await locator.press("Tab");
-  await page.waitForTimeout(700);
+async function humanPause(min = 350, max = 1200) {
+  const ms = Math.floor(min + Math.random() * (max - min));
+  await page.waitForTimeout(ms);
 }
 
-async function clickHuman(locator) {
+async function humanMoveAndClick(locator) {
   await locator.waitFor({ state: "visible", timeout: 60000 });
   await locator.scrollIntoViewIfNeeded().catch(() => {});
-  await locator.hover().catch(() => {});
-  await page.waitForTimeout(500);
-  await locator.click({ timeout: 60000 });
+  await humanPause();
+
+  const box = await locator.boundingBox();
+  if (box) {
+    const x = box.x + box.width / 2 + (Math.random() * 10 - 5);
+    const y = box.y + box.height / 2 + (Math.random() * 10 - 5);
+    await page.mouse.move(x - 40, y - 20, { steps: 8 });
+    await humanPause(200, 500);
+    await page.mouse.move(x, y, { steps: 12 });
+    await humanPause(200, 700);
+    await page.mouse.down();
+    await humanPause(80, 180);
+    await page.mouse.up();
+  } else {
+    await locator.hover().catch(() => {});
+    await humanPause();
+    await locator.click();
+  }
+}
+
+async function humanType(locator, value) {
+  await locator.waitFor({ state: "visible", timeout: 60000 });
+  await locator.scrollIntoViewIfNeeded().catch(() => {});
+  await humanMoveAndClick(locator);
+  await locator.fill("");
+  await humanPause(200, 500);
+  await locator.type(value, { delay: 120 });
+  await humanPause(300, 800);
+  await locator.press("Tab");
+  await humanPause(500, 1200);
 }
 
 async function waitCloudflareIfPresent(p) {
-  // No se evade Cloudflare. Solo esperamos si ya está verificando automáticamente.
-  const bodyText = await p.locator("body").innerText({ timeout: 5000 }).catch(() => "");
-  if (/Verificando|verifique que es un ser humano|Cloudflare/i.test(bodyText)) {
-    setStatus("cloudflare", "Cloudflare detectado. Esperando validación automática o intervención manual.");
-    await screenshot("cloudflare-detectado");
+  const text = await p.locator("body").innerText({ timeout: 5000 }).catch(() => "");
+  if (/Cloudflare|Verificando|verifique que es un ser humano|Operación exitosa/i.test(text)) {
+    log("cloudflare", "Cloudflare detectado. Esperando validación automática.");
+    await takeScreenshot("cloudflare");
     await p.waitForTimeout(15000);
   }
 }
 
-async function goToCompanyLogin(p) {
-  setStatus("login", "Abriendo ruta oficial /User/Login");
+async function loginDian(p) {
+  log("login", "Abriendo ruta oficial /User/Login");
+
   await p.goto("https://catalogo-vpfe.dian.gov.co/User/Login", {
     waitUntil: "domcontentloaded",
     timeout: 120000
@@ -161,82 +204,88 @@ async function goToCompanyLogin(p) {
 
   await waitCloudflareIfPresent(p);
   await p.waitForTimeout(3000);
-  await screenshot("01-user-login");
+  await takeScreenshot("01-login");
 
-  setStatus("login", "Seleccionando Empresa");
-  await clickHuman(p.getByText("Empresa", { exact: false }).first());
-  await p.waitForTimeout(1500);
-  await screenshot("02-empresa");
+  log("login", "Seleccionando Empresa");
+  await humanMoveAndClick(p.getByText("Empresa", { exact: false }).first());
+  await humanPause(800, 1500);
+  await takeScreenshot("02-empresa");
 
-  setStatus("login", "Seleccionando Representante legal");
-  await clickHuman(p.getByText("Representante legal", { exact: false }).first());
-  await p.waitForTimeout(2500);
-  await screenshot("03-representante-legal");
-}
+  log("login", "Seleccionando Representante legal");
+  await humanMoveAndClick(p.getByText("Representante legal", { exact: false }).first());
+  await humanPause(1500, 2500);
+  await takeScreenshot("03-representante");
 
-async function fillCompanyLogin(p) {
-  setStatus("login", "Llenando credenciales como humano");
+  log("login", "Llenando campos CC y NIT");
 
-  const visibleInputs = p.locator("input:visible");
-  await visibleInputs.first().waitFor({ state: "visible", timeout: 60000 });
+  const inputs = p.locator("input:visible");
+  await inputs.first().waitFor({ state: "visible", timeout: 60000 });
 
-  const count = await visibleInputs.count();
-
+  const count = await inputs.count();
   if (count < 2) {
-    await screenshot("error-inputs-no-encontrados");
-    throw new Error(`No se encontraron suficientes inputs visibles. Encontrados: ${count}`);
+    await takeScreenshot("error-sin-inputs");
+    throw new Error(`No se encontraron dos inputs visibles. Encontrados: ${count}`);
   }
 
-  await humanType(visibleInputs.nth(0), CC);
-  await humanType(visibleInputs.nth(1), NIT);
+  await humanType(inputs.nth(0), CC);
+  await humanType(inputs.nth(1), NIT);
+  await takeScreenshot("04-form-lleno");
 
-  await screenshot("04-formulario-llenado");
+  log("login", "Presionando botón Entrar con interacción humana");
 
-  setStatus("login", "Haciendo click en Entrar");
+  const boton = p.locator("button:has-text('Entrar'), input[type='submit'][value*='Entrar']").first();
+  await humanMoveAndClick(boton);
 
-  const button = p.locator("button:has-text('Entrar'), input[type='submit'][value*='Entrar']").first();
-  await clickHuman(button);
+  await p.waitForTimeout(9000);
+  await waitCloudflareIfPresent(p);
+  await takeScreenshot("05-despues-entrar");
 
-  // Esperamos confirmación real
-  await p.waitForTimeout(7000);
-  await screenshot("05-despues-de-entrar");
+  const currentUrl = p.url();
+  const bodyText = await p.locator("body").innerText({ timeout: 10000 }).catch(() => "");
 
-  const url = p.url();
-  const body = await p.locator("body").innerText({ timeout: 10000 }).catch(() => "");
+  const confirmed =
+    /LoginConfirmed/i.test(currentUrl) ||
+    /Se ha enviado la ruta de acceso/i.test(bodyText) ||
+    /acceso estará disponible/i.test(bodyText) ||
+    /reenviar el correo/i.test(bodyText);
 
-  if (/LoginConfirmed/i.test(url) || /Se ha enviado la ruta de acceso/i.test(body) || /acceso estará disponible/i.test(body)) {
+  if (!confirmed) {
+    await p.waitForTimeout(10000);
+    await takeScreenshot("06-no-confirmado-reintento-espera");
+
+    const currentUrl2 = p.url();
+    const bodyText2 = await p.locator("body").innerText({ timeout: 10000 }).catch(() => "");
+
+    const confirmed2 =
+      /LoginConfirmed/i.test(currentUrl2) ||
+      /Se ha enviado la ruta de acceso/i.test(bodyText2) ||
+      /acceso estará disponible/i.test(bodyText2) ||
+      /reenviar el correo/i.test(bodyText2);
+
+    if (!confirmed2) {
+      return {
+        confirmed: false,
+        currentUrl: currentUrl2,
+        pageTextSample: bodyText2.slice(0, 700)
+      };
+    }
+
     return {
       confirmed: true,
-      url,
-      message: "DIAN confirmó envío de correo"
-    };
-  }
-
-  // Algunos casos tardan un poco más
-  await p.waitForTimeout(8000);
-  const url2 = p.url();
-  const body2 = await p.locator("body").innerText({ timeout: 10000 }).catch(() => "");
-
-  if (/LoginConfirmed/i.test(url2) || /Se ha enviado la ruta de acceso/i.test(body2) || /acceso estará disponible/i.test(body2)) {
-    return {
-      confirmed: true,
-      url: url2,
-      message: "DIAN confirmó envío de correo"
+      currentUrl: currentUrl2
     };
   }
 
   return {
-    confirmed: false,
-    url: url2,
-    message: "No se detectó confirmación de envío de correo",
-    pageTextSample: body2.slice(0, 500)
+    confirmed: true,
+    currentUrl
   };
 }
 
 app.get("/", (req, res) => {
   res.json({
     ok: true,
-    service: "Backend DIAN robusto v6",
+    service: "Backend DIAN robusto v7",
     endpoints: [
       "GET /health",
       "GET /status",
@@ -248,7 +297,11 @@ app.get("/", (req, res) => {
 });
 
 app.get("/health", (req, res) => {
-  res.json({ ok: true, status: "online", headless: HEADLESS });
+  res.json({
+    ok: true,
+    status: "online",
+    headless: HEADLESS
+  });
 });
 
 app.get("/status", (req, res) => {
@@ -257,8 +310,8 @@ app.get("/status", (req, res) => {
 
 app.post("/reset", auth, async (req, res) => {
   await resetBrowser();
-  setStatus("reset", "Navegador reiniciado");
-  res.json({ ok: true, message: "Browser reiniciado" });
+  log("reset", "Browser reiniciado");
+  res.json({ ok: true });
 });
 
 app.post("/proceso-completo", auth, async (req, res) => {
@@ -266,39 +319,39 @@ app.post("/proceso-completo", auth, async (req, res) => {
     if (!CC || !NIT) {
       return res.status(500).json({
         ok: false,
-        error: "Faltan variables REPRESENTANTE_CC o EMPRESA_NIT"
+        error: "Faltan REPRESENTANTE_CC o EMPRESA_NIT"
       });
     }
 
     const p = await getPage({ fresh: true });
-
-    await goToCompanyLogin(p);
-    const result = await fillCompanyLogin(p);
+    const result = await loginDian(p);
 
     if (!result.confirmed) {
-      setError("login_no_confirmado", new Error(result.message));
+      const error = new Error("No se detectó confirmación de envío de correo");
+      logError("login_no_confirmado", error);
+
       return res.status(500).json({
         ok: false,
         step: "login_no_confirmado",
-        error: result.message,
-        currentUrl: result.url,
+        error: error.message,
+        currentUrl: result.currentUrl,
         pageTextSample: result.pageTextSample
       });
     }
 
-    setStatus("login_confirmado", "DIAN confirmó envío de correo", {
-      currentUrl: result.url
+    log("login_confirmado", "DIAN confirmó envío de correo", {
+      currentUrl: result.currentUrl
     });
 
     res.json({
       ok: true,
       step: "login_confirmado",
       message: "DIAN confirmó envío de correo. n8n puede buscar el email.",
-      currentUrl: result.url
+      currentUrl: result.currentUrl
     });
   } catch (e) {
-    setError("proceso-completo", e);
-    await screenshot("error-proceso-completo");
+    logError("proceso-completo", e);
+    await takeScreenshot("error-proceso-completo");
     res.status(500).json({
       ok: false,
       step: "proceso-completo",
@@ -317,23 +370,23 @@ app.post("/continuar-con-link", auth, async (req, res) => {
 
     const p = await getPage();
 
-    setStatus("link", "Abriendo link del correo DIAN");
+    log("link", "Abriendo link DIAN del correo");
     await p.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
     await waitCloudflareIfPresent(p);
     await p.waitForTimeout(6000);
-    await screenshot("06-link-correo");
+    await takeScreenshot("07-link-correo");
 
-    setStatus("export", "Navegando a Document/Export");
+    log("export", "Navegando a Document/Export");
     await p.goto("https://catalogo-vpfe.dian.gov.co/Document/Export", {
       waitUntil: "domcontentloaded",
       timeout: 120000
     });
 
     await p.waitForTimeout(5000);
-    await screenshot("07-document-export");
+    await takeScreenshot("08-export");
 
-    setStatus("export", "Click en Exportar Excel");
-    await clickHuman(p.getByText("Exportar Excel", { exact: false }).first());
+    log("export", "Click en Exportar Excel");
+    await humanMoveAndClick(p.getByText("Exportar Excel", { exact: false }).first());
 
     let downloadButton = null;
     const selectors = [
@@ -347,7 +400,7 @@ app.post("/continuar-con-link", auth, async (req, res) => {
       "i.fa-download"
     ];
 
-    setStatus("download", "Esperando botón de descarga");
+    log("download", "Esperando botón de descarga");
     for (let i = 0; i < 48; i++) {
       for (const selector of selectors) {
         const locator = p.locator(selector).last();
@@ -369,13 +422,13 @@ app.post("/continuar-con-link", auth, async (req, res) => {
     }
 
     if (!downloadButton) {
-      await screenshot("error-no-descarga");
-      throw new Error("No apareció el botón de descarga después de esperar");
+      await takeScreenshot("error-no-descarga");
+      throw new Error("No apareció botón de descarga después de esperar");
     }
 
     ensureDirs();
 
-    setStatus("download", "Descargando archivo");
+    log("download", "Descargando archivo");
     const [download] = await Promise.all([
       p.waitForEvent("download", { timeout: 120000 }),
       downloadButton.click()
@@ -386,7 +439,10 @@ app.post("/continuar-con-link", auth, async (req, res) => {
 
     await download.saveAs(filePath);
 
-    setStatus("completado", "Archivo descargado", { fileName, filePath });
+    log("completado", "Archivo descargado", {
+      fileName,
+      filePath
+    });
 
     res.json({
       ok: true,
@@ -395,8 +451,9 @@ app.post("/continuar-con-link", auth, async (req, res) => {
       filePath
     });
   } catch (e) {
-    setError("continuar-con-link", e);
-    await screenshot("error-continuar-con-link");
+    logError("continuar-con-link", e);
+    await takeScreenshot("error-continuar-con-link");
+
     res.status(500).json({
       ok: false,
       step: "continuar-con-link",
@@ -407,5 +464,5 @@ app.post("/continuar-con-link", auth, async (req, res) => {
 
 app.listen(PORT, () => {
   ensureDirs();
-  console.log(`Backend DIAN robusto v6 corriendo en puerto ${PORT}`);
+  console.log(`Backend DIAN robusto v7 corriendo en puerto ${PORT}`);
 });

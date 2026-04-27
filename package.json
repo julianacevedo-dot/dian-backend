@@ -1,6 +1,6 @@
 {
-  "name": "dian-backend-robusto-v6",
-  "version": "6.0.0",
+  "name": "dian-backend-robusto-v7",
+  "version": "7.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

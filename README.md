@@ -1,26 +1,26 @@
-# Backend DIAN robusto v6
+# Backend DIAN robusto v7
 
-Flujo:
-1. Abre `https://catalogo-vpfe.dian.gov.co/User/Login`
-2. Selecciona `Empresa`
-3. Selecciona `Representante legal`
-4. Escribe CC y NIT como humano con delay
-5. Presiona `Entrar`
-6. Verifica que DIAN llegue a `LoginConfirmed` o muestre texto de confirmación
-7. Toma screenshots de depuración
+## Cambios v7
+- Movimiento de mouse más humano.
+- Escritura con delay.
+- Click con mouse real.
+- Detección de pantalla LoginConfirmed.
+- Endpoint `/status`.
+- Endpoint `/reset`.
+- Screenshots en `/app/debug`.
 
-## Variables en Railway
+## Variables Railway
 
 ```env
 REPRESENTANTE_CC=1107047209
 EMPRESA_NIT=901588412
 AGENTE_SECRETO_DE_DIAN=tu_token
-HEADLESS=true
+HEADLESS=false
 DOWNLOAD_DIR=/app/downloads
 DEBUG_DIR=/app/debug
 ```
 
-Si DIAN/Cloudflare bloquea, prueba:
+Recomendado para DIAN:
 
 ```env
 HEADLESS=false
@@ -33,9 +33,3 @@ HEADLESS=false
 - `POST /reset`
 - `POST /proceso-completo`
 - `POST /continuar-con-link`
-
-Los POST protegidos requieren:
-
-```text
-Authorization: Bearer tu_token
-```
