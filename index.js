@@ -51,7 +51,6 @@ app.post("/proceso-completo", auth, async (req, res) => {
     await p.getByText("Representante legal").first().click();
     await p.waitForTimeout(2000);
 
-    // 🔥 FIX DEFINITIVO
     const inputs = p.locator("input:visible");
 
     await inputs.first().waitFor({ timeout: 60000 });
@@ -62,7 +61,7 @@ app.post("/proceso-completo", auth, async (req, res) => {
     await inputs.nth(1).click();
     await inputs.nth(1).fill(NIT);
 
-    await p.getByText("Entrar").click();
+    await p.locator("button:has-text('Entrar')").first().click();
 
     res.json({ ok: true, step: "login_enviado" });
 
