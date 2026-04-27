@@ -1,0 +1,165 @@
+{
+  "name": "DIAN – Facturas Automático (Railway)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 24 }]
+        }
+      },
+      "id": "node-schedule",
+      "name": "⏰ Trigger diario",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300],
+      "notes": "Se ejecuta una vez al día. Ajusta la hora en el nodo si quieres que corra a una hora específica."
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Obtener access_token de Gmail via OAuth2 de n8n\n// n8n guarda el token en las credenciales — lo pasamos al microservicio\nconst cred = $credentials?.gmailOAuth2 || {};\nconst token = cred.access_token || cred.oauthTokenData?.access_token || '';\n\nif (!token) throw new Error('No se encontró el access_token de Gmail. Asegúrate de tener credenciales Gmail OAuth2 configuradas en n8n.');\n\nreturn [{ json: { gmailToken: token } }];"
+      },
+      "id": "node-get-token",
+      "name": "1️⃣ Obtener Token Gmail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300],
+      "credentials": {
+        "gmailOAuth2": { "id": "gmail-cred", "name": "Gmail OAuth2" }
+      }
+    },
+
+    {
+      "parameters": {
+        "url": "={{ $vars.RAILWAY_URL }}/descargar-facturas",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key",    "value": "={{ $vars.RAILWAY_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "nit_representante", "value": "={{ $vars.NIT_REPRESENTANTE }}" },
+            { "name": "nit_empresa",       "value": "={{ $vars.NIT_EMPRESA }}" },
+            { "name": "gmail_token",       "value": "={{ $('1️⃣ Obtener Token Gmail').item.json.gmailToken }}" },
+            { "name": "tipo_id",           "value": "13" },
+            { "name": "rol",               "value": "RepresentanteLegal" }
+          ]
+        },
+        "options": {
+          "timeout": 180000,
+          "response": { "response": { "fullResponse": false } }
+        }
+      },
+      "id": "node-call-railway",
+      "name": "2️⃣ Llamar Microservicio Railway",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 300],
+      "notes": "Llama al microservicio en Railway. Timeout 3 min — Playwright tarda ~60-90 seg en completar todo el flujo."
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue":  "={{ $json.success }}",
+              "rightValue": true,
+              "operator":   { "type": "boolean", "operation": "true" }
+            }
+          ]
+        }
+      },
+      "id": "node-check",
+      "name": "¿Éxito?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Convertir base64 → binario para Google Drive\nconst { base64, filename, periodo, size } = $input.first().json;\n\nif (!base64) throw new Error('No se recibió el archivo en base64');\n\n// n8n necesita el binario en $binary\nconst buffer = Buffer.from(base64, 'base64');\n\nreturn [{\n  json: { filename, periodo, size },\n  binary: {\n    data: {\n      data:     base64,\n      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',\n      fileName: filename,\n      fileSize: size\n    }\n  }\n}];"
+      },
+      "id": "node-prep-binary",
+      "name": "3️⃣ Preparar Archivo Excel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 220]
+    },
+
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "={{ $json.filename }}",
+        "driveId": { "__rl": true, "mode": "list", "value": "My Drive" },
+        "folderId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "root",
+          "cachedResultName": "/ (Root)"
+        },
+        "binaryPropertyName": "data",
+        "options": {
+          "convertToGoogleDocument": false
+        }
+      },
+      "id": "node-drive",
+      "name": "4️⃣ Subir a Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1300, 220],
+      "credentials": {
+        "googleDriveOAuth2Api": { "id": "gdrive-cred", "name": "Google Drive OAuth2" }
+      }
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const drive   = $('4️⃣ Subir a Google Drive').item.json;\nconst info    = $('3️⃣ Preparar Archivo Excel').item.json;\n\nconsole.log(`✅ DIAN completado | ${info.filename} | ${info.periodo} | Drive: ${drive.webViewLink}`);\n\nreturn [{ json: {\n  status:     '✅ SUCCESS',\n  archivo:    drive.name,\n  driveLink:  drive.webViewLink,\n  periodo:    info.periodo,\n  timestamp:  new Date().toISOString()\n}}];"
+      },
+      "id": "node-ok",
+      "name": "✅ Completado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1520, 220]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const err = $input.first().json;\nconsole.error('❌ Error DIAN:', err.error);\nreturn [{ json: {\n  status:    '❌ ERROR',\n  mensaje:   err.error || 'Error desconocido',\n  hint:      err.hint  || '',\n  timestamp: new Date().toISOString()\n}}];"
+      },
+      "id": "node-error",
+      "name": "❌ Manejar Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 400]
+    }
+  ],
+
+  "connections": {
+    "⏰ Trigger diario":               { "main": [[{ "node": "1️⃣ Obtener Token Gmail",          "type": "main", "index": 0 }]] },
+    "1️⃣ Obtener Token Gmail":          { "main": [[{ "node": "2️⃣ Llamar Microservicio Railway", "type": "main", "index": 0 }]] },
+    "2️⃣ Llamar Microservicio Railway": { "main": [[{ "node": "¿Éxito?",                          "type": "main", "index": 0 }]] },
+    "¿Éxito?": {
+      "main": [
+        [{ "node": "3️⃣ Preparar Archivo Excel", "type": "main", "index": 0 }],
+        [{ "node": "❌ Manejar Error",            "type": "main", "index": 0 }]
+      ]
+    },
+    "3️⃣ Preparar Archivo Excel":       { "main": [[{ "node": "4️⃣ Subir a Google Drive",         "type": "main", "index": 0 }]] },
+    "4️⃣ Subir a Google Drive":         { "main": [[{ "node": "✅ Completado",                    "type": "main", "index": 0 }]] }
+  },
+
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": [{ "name": "DIAN" }, { "name": "Facturas" }, { "name": "Railway" }]
+}
