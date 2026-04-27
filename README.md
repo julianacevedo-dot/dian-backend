@@ -1,10 +1,16 @@
-# Backend DIAN v2 corregido
+# Backend DIAN FINAL v5
 
-Corrige el error de Playwright `strict mode violation` en “Representante legal”.
+Ajustado al flujo correcto:
+
+1. Abrir `https://catalogo-vpfe.dian.gov.co/User/Login`
+2. Seleccionar `Empresa`
+3. Seleccionar `Representante legal`
+4. Llenar CC y NIT
+5. Clic en `Entrar`
 
 Variables Railway:
-REPRESENTANTE_CC=1107047209
-EMPRESA_NIT=901588412
-AGENTE_SECRETO_DE_DIAN=tu_token
-HEADLESS=true
-DOWNLOAD_DIR=/app/downloads
+- REPRESENTANTE_CC
+- EMPRESA_NIT
+- AGENTE_SECRETO_DE_DIAN
+- HEADLESS=true
+- DOWNLOAD_DIR=/app/downloads
