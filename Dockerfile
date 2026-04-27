@@ -1,9 +1,19 @@
-FROM mcr.microsoft.com/playwright:v1.44.0-jammy
+FROM mcr.microsoft.com/playwright:v1.43.0-jammy
+
 WORKDIR /app
+
+# Copiar dependencias primero (cache de Docker)
 COPY package*.json ./
-RUN npm install
-COPY . .
-ENV DOWNLOAD_DIR=/app/downloads
-ENV DEBUG_DIR=/app/debug
+RUN npm ci --only=production
+
+# Instalar solo Chromium (más liviano que todos los browsers)
+RUN npx playwright install chromium --with-deps
+
+# Copiar código
+COPY server.js ./
+
+# Railway asigna PORT automáticamente
+ENV PORT=3000
 EXPOSE 3000
-CMD ["npm","start"]
+
+CMD ["node", "server.js"]
